@@ -1,48 +1,19 @@
 # TodoAI - A Modern Todo Application
 
-A full-stack Todo application built with TypeScript, React, Node.js, PostgreSQL, and Docker.
-
-## Features
-
-- Create, read, update, and delete todo items
-- Task management with name, description, and due date
-- Mark tasks as complete/incomplete
-- Modern and responsive UI
-- Type-safe development with TypeScript
-- Containerized deployment with Docker
-
-## Tech Stack
-
-### Frontend
-- React
-- TypeScript
-- Material UI
-- React Query for data fetching
-
-### Backend
-- Node.js
-- TypeScript
-- Express
-- TypeORM
-- PostgreSQL
-
-### DevOps
-- Docker
-- Docker Compose
+A full-stack AI Todo application.
 
 ## Getting Started
 
 ### Prerequisites
 - Docker
 - Docker Compose
-- Node.js (for local development)
 
 ### Running the Application
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/TodoAI.git
-cd TodoAI
+git clone https://github.com/YlmzCmlttn/ToDoAI.git
+cd ToDoAI
 ```
 
 2. Start the application using Docker Compose:
@@ -52,50 +23,12 @@ docker-compose up --build
 
 3. Access the application:
 - Frontend: http://localhost:3000
+- Frontend AI Bot: http://localhost:3002
 - Backend API: http://localhost:4000
 
-### Development
+To run the application:
 
-To run the application in development mode:
-
-1. Start the backend:
+Run:
 ```bash
-cd backend
-npm install
-npm run dev
+docker-compose up --build
 ```
-
-2. Start the frontend:
-```bash
-cd frontend
-npm install
-npm start
-```
-
-## Project Structure
-
-```
-/project-root
-├── /frontend
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── public/
-│   └── src/
-├── /backend
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── src/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── routes/
-│   │   ├── migrations/
-│   │   └── app.ts
-└── docker-compose.yml
-```
-
-## API Endpoints
-
-- GET /api/todos - Get all todos
-- POST /api/todos - Create a new todo
-- PUT /api/todos/:id - Update a todo
-- DELETE /api/todos/:id - Delete a todo
