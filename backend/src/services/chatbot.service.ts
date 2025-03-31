@@ -16,6 +16,17 @@ type FunctionHandler = {
     deleteTodo: (params: { id: number }) => Promise<boolean>;
     getTodosByDueDate: (params: { date: string }) => Promise<Todo[]>;
     getUpcomingTodos: (params: { days: number }) => Promise<Todo[]>;
+    getCurrentTime: () => Promise<{
+        currentTime: string;
+        currentDate: string;
+        currentDayOfWeek: number;
+        currentMonth: number;
+        currentYear: number;
+        currentHour: number;
+        currentMinute: number;
+        currentSecond: number;
+        timezone: string;
+    }>;
 };
 
 const functions = [
@@ -122,6 +133,15 @@ const functions = [
             required: ['days'],
         },
     },
+    {
+        name: 'getCurrentTime',
+        description: 'Get the current time and date information',
+        parameters: {
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+    },
 ];
 
 const functionHandlers: FunctionHandler = {
@@ -164,6 +184,20 @@ const functionHandlers: FunctionHandler = {
             return todoDate >= today && todoDate <= futureDate;
         });
     },
+    getCurrentTime: async () => {
+        const now = new Date();
+        return {
+            currentTime: now.toISOString(),
+            currentDate: now.toISOString().split('T')[0],
+            currentDayOfWeek: now.getDay(), // 0 = Sunday, 1 = Monday, etc.
+            currentMonth: now.getMonth() + 1, // 1-12
+            currentYear: now.getFullYear(),
+            currentHour: now.getHours(),
+            currentMinute: now.getMinutes(),
+            currentSecond: now.getSeconds(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+    },
 };
 
 export const chatbotService = {
@@ -179,7 +213,21 @@ export const chatbotService = {
                 content: `You are a helpful assistant that helps users manage their todo list. 
                 You can create, update, delete, and query todos. 
                 Always be friendly and concise in your responses. 
-                When showing todos, format them nicely with bullet points.`,
+                When showing todos, format them nicely with bullet points.
+                When a user asks for multiple actions, you should chain the function calls together.
+                
+                For time-based tasks (like "tomorrow", "next Monday", "next month"), you should:
+                1. First call getCurrentTime to get the current time information
+                2. Use that information to calculate the correct due date
+                3. Then create or update the todo with the calculated date
+                
+                Examples of time calculations:
+                - "tomorrow" = current date + 1 day
+                - "next Monday" = next occurrence of Monday from current date
+                - "next month" = first day of next month
+                - "yesterday" = current date - 1 day
+                
+                Always convert relative dates to ISO format before creating or updating todos.`,
             } as ChatCompletionSystemMessageParam,
             {
                 role: 'user',
@@ -191,17 +239,25 @@ export const chatbotService = {
 
         try {
             if (stream) {
-                console.log('Creating streaming completion...');
-                const completion = await openai.chat.completions.create({
-                    model: 'gpt-4o',
-                    messages,
-                    functions,
-                    stream: false, // Force non-streaming for initial completion
-                });
-                console.log('Initial completion received:', JSON.stringify(completion.choices[0].message, null, 2));
+                let currentMessages = [...messages];
+                let functionCallCount = 0;
+                const maxFunctionCalls = 5; // Prevent infinite loops
 
-                const response = completion.choices[0].message;
-                if (response.function_call) {
+                while (functionCallCount < maxFunctionCalls) {
+                    const completion = await openai.chat.completions.create({
+                        model: 'gpt-4o',
+                        messages: currentMessages,
+                        functions,
+                        stream: false,
+                    });
+                    console.log('Completion received:', JSON.stringify(completion.choices[0].message, null, 2));
+
+                    const response = completion.choices[0].message;
+                    if (!response.function_call) {
+                        // No more function calls, return the final response
+                        return typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
+                    }
+
                     console.log('Function call detected:', response.function_call.name);
                     const functionName = response.function_call.name as keyof FunctionHandler;
                     const functionArgs = JSON.parse(response.function_call.arguments);
@@ -226,86 +282,25 @@ export const chatbotService = {
                         content: JSON.stringify(functionResult),
                     };
 
-                    console.log('Creating final streaming completion...');
-                    const finalStream = await openai.chat.completions.create({
-                        model: 'gpt-4o',
-                        messages: [...messages, assistantMessage, functionMessage],
-                        stream: true,
-                    });
-
-                    console.log('Starting stream processing...');
-                    let fullResponse = '';
-                    for await (const chunk of finalStream) {
-                        const content = chunk.choices[0]?.delta?.content || '';
-                        fullResponse += content;
-                        console.log('Stream chunk received:', content);
-                    }
-                    console.log('Stream processing complete. Full response:', fullResponse);
-                    return fullResponse;
-                } else {
-                    // If no function call, stream the response directly
-                    const directStream = await openai.chat.completions.create({
-                        model: 'gpt-4o',
-                        messages,
-                        stream: true,
-                    });
-
-                    console.log('Starting direct stream processing...');
-                    let fullResponse = '';
-                    for await (const chunk of directStream) {
-                        const content = chunk.choices[0]?.delta?.content || '';
-                        fullResponse += content;
-                        console.log('Stream chunk received:', content);
-                    }
-                    console.log('Stream processing complete. Full response:', fullResponse);
-                    return fullResponse;
+                    currentMessages = [...currentMessages, assistantMessage, functionMessage];
+                    functionCallCount++;
                 }
+
+                // If we've reached max function calls, return the last response
+                const lastMessage = currentMessages[currentMessages.length - 1];
+                return typeof lastMessage.content === 'string' ? lastMessage.content : JSON.stringify(lastMessage.content);
             } else {
-                console.log('Creating regular completion...');
+                // Non-streaming mode implementation
                 const completion = await openai.chat.completions.create({
                     model: 'gpt-4o',
                     messages,
                     functions,
+                    stream: false,
                 });
-                console.log('Completion received:', JSON.stringify(completion.choices[0].message, null, 2));
 
-                const response = completion.choices[0].message;
-                if (response.function_call) {
-                    console.log('Function call detected:', response.function_call.name);
-                    const functionName = response.function_call.name as keyof FunctionHandler;
-                    const functionArgs = JSON.parse(response.function_call.arguments);
-                    console.log('Function arguments:', JSON.stringify(functionArgs, null, 2));
-
-                    console.log('Executing function:', functionName);
-                    const functionResult = await functionHandlers[functionName](functionArgs);
-                    console.log('Function result:', JSON.stringify(functionResult, null, 2));
-
-                    const assistantMessage: ChatCompletionAssistantMessageParam = {
-                        role: 'assistant',
-                        content: `I've executed the ${functionName} function. Here's the result:`,
-                        function_call: {
-                            name: functionName,
-                            arguments: JSON.stringify(functionArgs),
-                        },
-                    };
-
-                    const functionMessage: ChatCompletionFunctionMessageParam = {
-                        role: 'function',
-                        name: functionName,
-                        content: JSON.stringify(functionResult),
-                    };
-
-                    console.log('Creating final completion with function result...');
-                    const finalCompletion = await openai.chat.completions.create({
-                        model: 'gpt-4o',
-                        messages: [...messages, assistantMessage, functionMessage],
-                    });
-                    console.log('Final completion received:', JSON.stringify(finalCompletion.choices[0].message, null, 2));
-                    return finalCompletion.choices[0].message.content || '';
-                }
-
-                console.log('No function call, returning direct response');
-                return response.content || '';
+                return typeof completion.choices[0].message.content === 'string' 
+                    ? completion.choices[0].message.content 
+                    : JSON.stringify(completion.choices[0].message.content);
             }
         } catch (error) {
             console.error('Error in processMessage:', error);
